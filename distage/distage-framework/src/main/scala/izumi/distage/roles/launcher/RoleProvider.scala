@@ -29,16 +29,17 @@ object RoleProvider {
     parameters: RawAppArgs,
   ) extends RoleProvider {
 
+    protected lazy val isReflectionEnabled: Boolean = {
+      reflectionEnabled && syspropRolesReflection && !IzJvm.isGraalNativeImage()
+    }
+
     def loadRoles[F[_]: TagK](appModule: ModuleBase): RolesInfo = {
-      val rolesInfo = {
-        val bindings = appModule.bindings
-        val activeRoleNames = parameters.roles.map(_.role).toSet
-        val roleType = SafeType.get[AbstractRole[F]]
-        getInfo(bindings, activeRoleNames, roleType)
-      }
-
+      val rolesInfo = getInfo(
+        bindings = appModule.bindings,
+        requiredRoles = parameters.roles.iterator.map(_.role).toSet,
+        roleType = SafeType.get[AbstractRole[F]],
+      )
       logger.info(s"Available ${rolesInfo.render() -> "roles"}")
-
       rolesInfo
     }
 
@@ -59,7 +60,7 @@ object RoleProvider {
         unrequiredRoleNames = unrequiredRoleNames,
       )
 
-      val missing = requiredRoles.diff(availableRoleBindings.map(_.descriptor.id).toSet)
+      val missing = requiredRoles.diff(availableRoleBindings.map(_.descriptor.id))
       if (missing.nonEmpty) {
         logger.crit(s"Missing ${missing.niceList() -> "roles"}")
         throw new DIAppBootstrapException(s"Unknown roles:${missing.niceList("    ")}")
@@ -74,39 +75,12 @@ object RoleProvider {
     }
 
     protected def instantiateRoleBindings(bindings: Set[Binding], roleType: SafeType): Set[RoleBinding] = {
-      if (reflectionEnabled()) {
-        bindings.iterator
-          .flatMap {
-            case s: ImplBinding if s.tags.exists(_.isInstanceOf[RoleTag]) =>
-              s.tags.iterator.collect { case RoleTag(roleDescriptor) => Right((s, roleDescriptor)) }
+      bindings.collect {
+        case s: ImplBinding if s.tags.exists(_.isInstanceOf[RoleTag]) && checkRoleType(s.implementation.implType, roleType, log = true) =>
+          mkRoleBinding(s, s.tags.collectFirst { case RoleTag(roleDescriptor) => roleDescriptor }.get)
 
-            case s: ImplBinding if s.implementation.implType <:< roleType =>
-              Iterator(Left(s))
-
-            case _ =>
-              Iterator.empty
-          }
-          .map {
-            case Right((roleBinding, descriptor)) =>
-              mkRoleBinding(roleBinding, descriptor)
-
-            case Left(roleBinding) =>
-              reflectCompanionBinding(roleBinding)
-          }
-          .toSet
-      } else {
-        bindings.iterator
-          .flatMap {
-            case s: ImplBinding if s.tags.exists(_.isInstanceOf[RoleTag]) =>
-              s.tags.iterator.collect { case RoleTag(roleDescriptor) => s -> roleDescriptor }
-
-            case _ => Iterator.empty
-          }
-          .map {
-            case (roleBinding, descriptor) =>
-              mkRoleBinding(roleBinding, descriptor)
-          }
-          .toSet
+        case s: ImplBinding if isReflectionEnabled && s.implementation.implType <:< roleType =>
+          reflectCompanionBinding(s)
       }
     }
 
@@ -114,8 +88,10 @@ object RoleProvider {
       requiredRoles.contains(b.descriptor.id) || requiredRoles.contains(b.tpe.tag.shortName.toLowerCase)
     }
 
-    protected def reflectionEnabled(): Boolean = {
-      reflectionEnabled && syspropRolesReflection && !IzJvm.isGraalNativeImage()
+    protected def checkRoleType(implType: SafeType, roleType: SafeType, log: Boolean): Boolean = {
+      val res = implType <:< roleType
+      if (!res) logger.warn(s"Found role binding with incompatible effect type $implType (expected to be a subtype of $roleType)")
+      res
     }
 
     protected def mkRoleBinding(roleBinding: ImplBinding, roleDescriptor: RoleDescriptor): RoleBinding = {
@@ -125,7 +101,7 @@ object RoleProvider {
     }
 
     protected def reflectCompanionBinding(roleBinding: ImplBinding): RoleBinding = {
-      if (reflectionEnabled()) {
+      if (isReflectionEnabled) {
         reflectCompanionDescriptor(roleBinding.key.tpe) match {
           case Some(descriptor) =>
             logger.warn(

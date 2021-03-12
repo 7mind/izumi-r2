@@ -18,7 +18,6 @@ trait IzJvm {
       "org.graalvm.nativeimage.kind",
     )
     props.exists(p => Option(System.getProperty(p)).isDefined)
-
   }
 
   def uptime: Duration = Duration(getUptime, scala.concurrent.duration.MILLISECONDS)
