@@ -2,9 +2,9 @@ package izumi.distage.docker
 
 import java.util.UUID
 import com.github.dockerjava.api.DockerClient
-import com.github.dockerjava.api.command.DockerCmdExecFactory
 import com.github.dockerjava.api.model.Container
 import com.github.dockerjava.core.{DefaultDockerClientConfig, DockerClientBuilder, DockerClientConfig}
+import com.github.dockerjava.zerodep.ZerodepDockerHttpClient
 import izumi.distage.docker.Docker.{ClientConfig, ContainerId}
 import izumi.distage.docker.DockerClientWrapper.ContainerDestroyMeta
 import izumi.distage.framework.model.IntegrationCheck
@@ -16,7 +16,6 @@ import izumi.fundamentals.platform.integration.ResourceCheck
 import izumi.fundamentals.platform.language.Quirks.Discarder
 import izumi.logstage.api.IzLogger
 
-import scala.annotation.nowarn
 import scala.jdk.CollectionConverters._
 
 class DockerClientWrapper[F[_]](
@@ -71,7 +70,6 @@ object DockerClientWrapper {
   private[this] val jvmRun: String = UUID.randomUUID().toString
 
   class Resource[F[_]](
-    factory: DockerCmdExecFactory,
     logger: IzLogger,
     clientConfig: ClientConfig,
   )(implicit
@@ -79,19 +77,23 @@ object DockerClientWrapper {
   ) extends Lifecycle.Basic[F, DockerClientWrapper[F]]
     with IntegrationCheck[F] {
 
-    private[this] lazy val rawClientConfig = Value(DefaultDockerClientConfig.createDefaultConfigBuilder())
-      .mut(clientConfig.remote.filter(_ => clientConfig.useRemote))(
-        (b, c) => b.withDockerHost(c.host).withDockerTlsVerify(c.tlsVerify).withDockerCertPath(c.certPath).withDockerConfig(c.config)
-      )
-      .mut(clientConfig.registry.filter(_ => clientConfig.useRegistry))(
-        (b, c) => b.withRegistryUrl(c.url).withRegistryUsername(c.username).withRegistryPassword(c.password).withRegistryEmail(c.email)
-      )
-      .get.build()
+    private[this] lazy val rawClientConfig = {
+      Value(DefaultDockerClientConfig.createDefaultConfigBuilder())
+        .mut(clientConfig.daemon)((b, c) => b.withDockerHost(c.host))
+        .mut(clientConfig.daemon.filter(_.tlsVerify))((b, c) => b.withDockerTlsVerify(true).withDockerCertPath(c.certPath).withDockerConfig(c.config))
+        .mut(clientConfig.registry.filter(_ => clientConfig.useRegistry))(
+          (b, c) => b.withRegistryUrl(c.url).withRegistryUsername(c.username).withRegistryPassword(c.password).withRegistryEmail(c.email)
+        )
+        .get.build()
+    }
 
-    @nowarn("msg=deprecated")
     private[this] lazy val client = DockerClientBuilder
-      .getInstance(rawClientConfig)
-      .withDockerCmdExecFactory(factory)
+      .getInstance(rawClientConfig).withDockerHttpClient(
+        new ZerodepDockerHttpClient.Builder()
+          .dockerHost(rawClientConfig.getDockerHost)
+          .sslConfig(rawClientConfig.getSSLConfig)
+          .build()
+      )
       .build
 
     override def resourcesAvailable(): F[ResourceCheck] = F.maybeSuspend {

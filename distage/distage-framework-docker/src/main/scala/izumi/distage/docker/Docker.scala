@@ -145,28 +145,19 @@ object Docker {
     * @param globalReuse   If true and container's [[ContainerConfig#reuse]] is also true, keeps container alive after
     *                     initialization. If false, the container will be shut down.
     *
-    * @param remote       Options to connect to a Remote Docker Daemon,
-    *                     will try to connect to remote docker if [[useRemote]] is `true`
+    * @param daemon      Options to connect to a Docker Daemon
+    *
+    * @param useRegistry  Connect to speicifed Docker Registry
     *
     * @param registry     Options to connect to custom Docker Registry host,
     *                     will try to connect to specified registry, instead of the default if [[useRegistry]] is `true`
     *
-    * @param readTimeoutMs    Read timeout in milliseconds
-    *
-    * @param connectTimeoutMs Connect timeout in milliseconds
-    *
-    * @param useRemote        Connect to Remote Docker Daemon
-    *
-    * @param useRegistry      Connect to speicifed Docker Registry
     */
   final case class ClientConfig(
-    readTimeoutMs: Int = 60000,
-    connectTimeoutMs: Int = 1000,
     globalReuse: DockerReusePolicy = ClientConfig.defaultReusePolicy,
-    useRemote: Boolean = false,
+    daemon: Option[DaemonDockerConfig] = None,
     useRegistry: Boolean = false,
-    remote: Option[RemoteDockerConfig] = None,
-    registry: Option[DockerRegistryConfig] = None,
+    registry: Option[DockerRegistryConfig] = None
   )
 
   object ClientConfig {
@@ -193,7 +184,12 @@ object Docker {
     }
   }
 
-  final case class RemoteDockerConfig(host: String, tlsVerify: Boolean, certPath: String, config: String)
+  final case class DaemonDockerConfig(
+    host: String,
+    tlsVerify: Boolean = false,
+    certPath: String,
+    config: String
+  )
 
   final case class DockerRegistryConfig(url: String, username: String, password: String, email: String)
 

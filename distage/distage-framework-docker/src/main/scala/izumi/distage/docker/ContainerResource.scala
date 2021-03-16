@@ -159,7 +159,7 @@ case class ContainerResource[F[_], T](
   private[this] def runReused(ports: Seq[PortDecl]): F[DockerContainer[T]] = {
     logger.info(s"About to start or find container ${config.image}, ${config.pullTimeout -> "max lock retries"}...")
     FileLockMutex.withLocalMutex(logger)(
-      s"distage-container-resource-${config.image.replace("/", "_")}:${config.ports.mkString(";")}",
+      s"distage-container-resource-${config.image}:${config.ports.mkString(";")}".replaceAll("[:/]", "_"),
       waitFor = 200.millis,
       maxAttempts = config.pullTimeout.toSeconds.toInt * 5,
     ) {

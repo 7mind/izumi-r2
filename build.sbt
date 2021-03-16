@@ -2148,7 +2148,8 @@ lazy val `distage-framework-docker` = project.in(file("distage/distage-framework
       "dev.zio" %% "zio" % V.zio % Test excludeAll("dev.zio" %% "izumi-reflect"),
       "dev.zio" %% "izumi-reflect" % V.izumi_reflect % Test,
       "io.monix" %% "monix-bio" % V.monix_bio % Test,
-      "com.github.docker-java" % "docker-java" % V.docker_java
+      "com.github.docker-java" % "docker-java" % V.docker_java,
+      "com.github.docker-java" % "docker-java-transport-zerodep" % V.docker_java
     )
   )
   .settings(
